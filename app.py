@@ -2,7 +2,6 @@
 import pandas as pd
 import os
 from datetime import datetime, timedelta
-import time
 from collections import defaultdict
 
 # --------------------
@@ -105,11 +104,11 @@ def calculate_group_standings(group_schedule, scores):
     return standings
 
 def generate_knockout_schedule(standings, last_group_time):
-    """Generate the Cup knockout bracket using top‐2 teams from each group."""
+    """Generate the Cup knockout bracket using top-2 teams from each group."""
     knockout_matches = []
     match_id = 13
     start_time = datetime.strptime(last_group_time, "%H:%M:%S") + timedelta(minutes=3)
-    # Quarterfinals: Pairings based on the standings
+    # Quarterfinals: Pairings based on standings
     qf_teams = [
         (f"{team_dict[standings['A'][0][0]]}", f"{team_dict[standings['C'][1][0]]}", "Quarterfinal 1"),
         (f"{team_dict[standings['B'][0][0]]}", f"{team_dict[standings['D'][1][0]]}", "Quarterfinal 2"),
@@ -166,7 +165,7 @@ def generate_bowl_schedule(standings, last_group_time):
     knockout_matches = []
     match_id = 25  # IDs for Bowl bracket start after Cup
     start_time = datetime.strptime(last_group_time, "%H:%M:%S") + timedelta(minutes=5)
-    # Assume 3rd place teams from groups A-D form the Bowl (4 teams total)
+    # 3rd-place teams from groups A-D
     bowl_teams = [
         team_dict[standings["A"][2][0]],
         team_dict[standings["B"][2][0]],
@@ -208,7 +207,7 @@ def generate_bowl_schedule(standings, last_group_time):
     return pd.DataFrame(knockout_matches)
 
 def resolve_knockout_teams(full_schedule, scores):
-    """Replace placeholders (e.g., 'Winner QF1') with the actual team names based on match scores."""
+    """Replace placeholders (e.g., 'Winner QF1') with actual team names based on match scores."""
     for i, row in full_schedule.iterrows():
         if "Winner" in row["teams"] or "Loser" in row["teams"]:
             t1, t2 = row["teams"].split(" vs ")
@@ -243,21 +242,17 @@ def resolve_knockout_teams(full_schedule, scores):
 def load_full_schedule():
     """
     Load group stage schedule and scores.
-    If every group match has a score (i.e. group stage complete),
-    generate the Cup and Bowl knockout brackets based on final standings.
-    Otherwise, only the group stage matches are returned.
+    Only generate knockout brackets (Cup & Bowl) if all group matches have a score.
     """
     group_schedule = load_csv(GROUP_SCHEDULE_FILE, ["match", "teams", "group", "start_time", "end_time"])
     scores = load_csv(SCORES_FILE, ["match", "score"])
-    
-    # Check if all group stage matches have been completed
     group_stage_complete = True
     for _, row in group_schedule.iterrows():
         score_val = scores[scores["match"] == row["match"]]["score"].values
         if len(score_val) == 0 or pd.isna(score_val[0]):
             group_stage_complete = False
             break
-    
+
     if group_stage_complete:
         standings = calculate_group_standings(group_schedule, scores)
         last_group_time = group_schedule["end_time"].iloc[-1]
@@ -273,33 +268,33 @@ def load_full_schedule():
     return full_schedule, scores, group_stage_complete
 
 # --------------------
-# BRACKET UI FUNCTIONS
+# IMPROVED BRACKET UI FUNCTIONS
 # --------------------
 def create_bracket_html(matches, bracket_title):
+    # Group matches by round
     rounds = defaultdict(list)
     for m in matches:
         rounds[m["round"]].append(m)
-    round_keys = sorted(rounds.keys())
-    bracket_html = f"""
-    <div class='bracket-container'>
-      <h2>{bracket_title}</h2>
-      <div class='bracket'>
-    """
-    for rkey in round_keys:
-        bracket_html += f"<div class='round'><h3>{rkey}</h3>"
-        for match_data in rounds[rkey]:
-            bracket_html += f"""
-            <div class='match'>
-              <div class='match-teams'>{match_data["match_str"]}</div>
-              <div class='match-score'>{match_data["score_str"]}</div>
-            </div>
-            """
-        bracket_html += "</div>"
-    bracket_html += """
-      </div>
-    </div>
-    """
-    return bracket_html
+    # Order rounds in a custom order (you can adjust this as needed)
+    custom_order = ["Quarterfinal 1", "Quarterfinal 2", "Quarterfinal 3", "Quarterfinal 4",
+                    "Semifinal 1", "Semifinal 2", "Cup 3rd Place Playoff", "Cup Final",
+                    "Bowl Semifinal 1", "Bowl Semifinal 2", "Bowl 3rd Place", "Bowl Final"]
+    sorted_rounds = sorted(rounds.keys(), key=lambda r: custom_order.index(r) if r in custom_order else 999)
+    
+    html = f"<div class='bracket-title'>{bracket_title}</div><div class='bracket-container'>"
+    for r in sorted_rounds:
+        html += "<div class='bracket-round'>"
+        html += f"<div class='round-title'>{r}</div>"
+        for match in rounds[r]:
+            html += (
+                f"<div class='bracket-match'>"
+                f"<div class='match-teams'>{match['match_str']}</div>"
+                f"<div class='match-score'>{match['score_str']}</div>"
+                f"</div>"
+            )
+        html += "</div>"
+    html += "</div>"
+    return html
 
 def build_bracket_data(schedule_df, scores_df, bracket_filter):
     bracket_matches = schedule_df[schedule_df["group"].str.contains(bracket_filter, case=False, na=False)]
@@ -318,13 +313,12 @@ def build_bracket_data(schedule_df, scores_df, bracket_filter):
     return bracket_data
 
 def display_brackets(schedule_df, scores_df):
-    # Build Cup bracket data from Quarterfinals, Semifinals, Finals and 3rd Place playoff
+    # Build Cup bracket data
     cup_bracket_data = build_bracket_data(schedule_df, scores_df, "Quarterfinal")
     cup_bracket_data += build_bracket_data(schedule_df, scores_df, "Semifinal")
     cup_bracket_data += build_bracket_data(schedule_df, scores_df, "Cup Final")
     cup_bracket_data += build_bracket_data(schedule_df, scores_df, "3rd Place")
-    
-    # Build Bowl bracket data from Bowl Semifinals, Finals and 3rd Place playoff
+    # Build Bowl bracket data
     bowl_bracket_data = build_bracket_data(schedule_df, scores_df, "Bowl Semifinal")
     bowl_bracket_data += build_bracket_data(schedule_df, scores_df, "Bowl Final")
     bowl_bracket_data += build_bracket_data(schedule_df, scores_df, "Bowl 3rd Place")
@@ -341,15 +335,14 @@ def display_brackets(schedule_df, scores_df):
 def display_tournament_data():
     full_schedule, scores, group_stage_complete = load_full_schedule()
     tabs = st.tabs(["📅 Schedule", "⚽ Scores", "🏆 Standings", "🏅 Knockout Brackets"])
-    
     with tabs[0]:
         st.markdown('<h2 class="section-header">Tournament Schedule</h2>', unsafe_allow_html=True)
-        st.dataframe(full_schedule.style.set_properties(**{'text-align': 'center', 'background-color': '#f9f9f9'}))
-    
+        st.dataframe(full_schedule.style.set_properties(**{"text-align": "center"}))
     with tabs[1]:
         st.markdown('<h2 class="section-header">Scores</h2>', unsafe_allow_html=True)
-        st.dataframe(scores.style.set_properties(**{'text-align': 'center', 'background-color': '#f9f9f9'}))
-    
+        schedule_subset = full_schedule[['match', 'teams']]
+        merged_scores = pd.merge(schedule_subset, scores, on="match", how="left")
+        st.dataframe(merged_scores.style.set_properties(**{"text-align": "center"}))
     with tabs[2]:
         st.markdown('<h2 class="section-header">Group Standings</h2>', unsafe_allow_html=True)
         group_schedule = load_csv(GROUP_SCHEDULE_FILE, ["match", "teams", "group", "start_time", "end_time"])
@@ -357,8 +350,7 @@ def display_tournament_data():
         for group, ranking in standings.items():
             st.write(f"**Group {group}**")
             df = pd.DataFrame([{"team": team_dict.get(t, t), **stats} for t, stats in ranking])
-            st.dataframe(df.style.set_properties(**{'text-align': 'center', 'background-color': '#f9f9f9'}))
-    
+            st.dataframe(df.style.set_properties(**{"text-align": "center"}))
     with tabs[3]:
         st.markdown('<h2 class="section-header">Knockout Brackets</h2>', unsafe_allow_html=True)
         if group_stage_complete:
@@ -371,34 +363,73 @@ def display_tournament_data():
 # --------------------
 def main():
     st.set_page_config(page_title="RHL 2025 Tournament Scheduler", layout="wide", initial_sidebar_state="expanded")
+    
+    # Custom CSS with dark mode support and improved bracket styling
     st.markdown("""
     <style>
+    /* Global Styles */
     body { font-family: 'Segoe UI', sans-serif; }
-    .main-title { font-size: 48px; text-align: center;
-      background: linear-gradient(90deg, #1e3c72, #2a5298);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      margin-top: 20px; }
+    .main-title {
+        font-size: 48px;
+        text-align: center;
+        background: linear-gradient(90deg, #1e3c72, #2a5298);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-top: 20px;
+    }
     .section-header { color: #2c3e50; text-align: center; margin-top: 20px; }
+    /* Sidebar customization */
     [data-testid="stSidebar"] { background: #f4f6f9; }
     .sidebar .sidebar-content { color: #2c3e50; }
-    .stButton>button { background: #e74c3c; color: white;
-      border-radius: 8px; padding: 10px 20px; font-size: 16px; }
+    .stButton>button {
+        background: #e74c3c;
+        color: white;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 16px;
+    }
     .stButton>button:hover { background: #c0392b; }
-    .admin-panel { background: #34495e; padding: 20px;
-      border-radius: 10px; color: white; margin-bottom: 20px; }
-    .bracket-container { margin: 40px auto; max-width: 1000px;
-      background: #ecf0f1; padding: 20px; border-radius: 10px; }
-    .bracket-container h2 { text-align: center; margin-bottom: 20px; }
-    .bracket { display: flex; flex-wrap: wrap; justify-content: space-around; }
-    .round { display: flex; flex-direction: column; align-items: center;
-      margin: 0 10px; min-width: 200px; }
-    .round h3 { text-align: center; margin-bottom: 10px;
-      background: #3498db; color: white; padding: 5px 10px; border-radius: 5px; }
-    .match { background: white; border: 2px solid #3498db;
-      border-radius: 5px; margin: 10px 0; padding: 10px; width: 180px;
-      text-align: center; }
+    .admin-panel {
+        background: #34495e;
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        margin-bottom: 20px;
+    }
+    /* Bracket styling */
+    .bracket-title { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }
+    .bracket-container { display: flex; justify-content: space-around; flex-wrap: wrap; margin: 20px auto; }
+    .bracket-round { flex: 1; min-width: 180px; margin: 10px; padding: 10px; background: #f9f9f9; border-radius: 8px; }
+    .round-title { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+    .bracket-match { background: white; border: 2px solid #3498db; border-radius: 5px; margin: 10px auto; padding: 8px; text-align: center; }
     .match-teams { font-weight: 600; margin-bottom: 5px; }
     .match-score { color: #e74c3c; }
+    /* Table styling for light mode */
+    .stDataFrame table td, .stDataFrame table th {
+        background-color: #f9f9f9 !important;
+        color: #000 !important;
+        text-align: center !important;
+    }
+    /* Dark mode overrides */
+    @media (prefers-color-scheme: dark) {
+        body { background-color: #121212; color: #e0e0e0; }
+        .main-title { color: #e0e0e0; }
+        .section-header { color: #e0e0e0; }
+        [data-testid="stSidebar"] { background: #1e1e1e; }
+        .sidebar .sidebar-content { color: #e0e0e0; }
+        .admin-panel { background: #2c2c2c; }
+        .bracket-round { background: #2c2c2c; }
+        .bracket-match {
+            background: #1e1e1e;
+            border: 2px solid #3498db;
+            color: #e0e0e0;
+        }
+        .round-title { color: #e0e0e0; }
+        .stDataFrame table td, .stDataFrame table th {
+            background-color: #2c2c2c !important;
+            color: #e0e0e0 !important;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -407,6 +438,7 @@ def main():
         st.session_state.is_admin = False
 
     if not st.session_state.logged_in:
+        st.sidebar.markdown('<h1 class="main-title">RHL 2025 Tournament Scheduler</h1>', unsafe_allow_html=True)
         st.sidebar.header("Login")
         username = st.sidebar.text_input("Username")
         password = st.sidebar.text_input("Password", type="password")
